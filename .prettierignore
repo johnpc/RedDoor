@@ -1,0 +1,8 @@
+.gitignore
+.prettierignore
+node_modules
+ios/
+android/
+*.svg
+*.png
+.husky

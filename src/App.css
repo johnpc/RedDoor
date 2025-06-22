@@ -1,0 +1,168 @@
+/* App.css */
+.app {
+  min-height: 100vh;
+  background-color: var(--amplify-colors-background-primary);
+}
+
+/* Location and Channel Cards Hover Effects */
+.location-card:hover,
+.channel-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease-in-out;
+}
+
+/* Post Content Styling */
+.post-content {
+  line-height: 1.6;
+}
+
+.post-content h1,
+.post-content h2,
+.post-content h3,
+.post-content h4,
+.post-content h5,
+.post-content h6 {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--amplify-colors-font-primary);
+}
+
+.post-content p {
+  margin-bottom: 1rem;
+}
+
+.post-content ul,
+.post-content ol {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+}
+
+.post-content li {
+  margin-bottom: 0.25rem;
+}
+
+.post-content blockquote {
+  border-left: 4px solid var(--amplify-colors-brand-primary-60);
+  padding-left: 1rem;
+  margin: 1rem 0;
+  font-style: italic;
+  color: var(--amplify-colors-font-secondary);
+}
+
+.post-content code {
+  background-color: var(--amplify-colors-background-secondary);
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  font-family: "Courier New", monospace;
+  font-size: 0.9em;
+}
+
+.post-content pre {
+  background-color: var(--amplify-colors-background-secondary);
+  padding: 1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.post-content pre code {
+  background: none;
+  padding: 0;
+}
+
+.post-content a {
+  color: var(--amplify-colors-brand-primary-80);
+  text-decoration: none;
+}
+
+.post-content a:hover {
+  text-decoration: underline;
+}
+
+/* Comment Content Styling */
+.comment-content {
+  line-height: 1.5;
+  font-size: 0.9rem;
+}
+
+.comment-content p {
+  margin-bottom: 0.5rem;
+}
+
+.comment-content code {
+  background-color: var(--amplify-colors-background-secondary);
+  padding: 0.1rem 0.3rem;
+  border-radius: 2px;
+  font-family: "Courier New", monospace;
+  font-size: 0.85em;
+}
+
+.comment-content a {
+  color: var(--amplify-colors-brand-primary-80);
+  text-decoration: none;
+}
+
+.comment-content a:hover {
+  text-decoration: underline;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .app {
+    padding: 0;
+  }
+
+  .location-card,
+  .channel-card {
+    min-width: 100%;
+  }
+}
+
+/* Loading States */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+/* Error States */
+.error-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  text-align: center;
+}
+
+/* Empty States */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  text-align: center;
+  padding: 2rem;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--amplify-colors-background-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--amplify-colors-brand-primary-40);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--amplify-colors-brand-primary-60);
+}

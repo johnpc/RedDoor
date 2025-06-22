@@ -1,0 +1,128 @@
+name: Build Mobile Apps (Simple)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build Android APK
+        run: |
+          cd android
+          ./gradlew assembleRelease --no-daemon
+          cd ..
+
+      - name: Rename Android APK
+        run: |
+          find android/app/build/outputs/apk/release -name "*.apk" -exec cp {} ./reddoor-android-${{ github.run_number }}.apk \;
+
+      - name: Upload Android APK to Release
+        if: github.event_name == 'release'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./reddoor-android-${{ github.run_number }}.apk
+          asset_name: reddoor-android.apk
+          asset_content_type: application/vnd.android.package-archive
+
+      - name: Upload Android APK as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: ./reddoor-android-${{ github.run_number }}.apk
+          retention-days: 30
+
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync Capacitor
+        run: npx cap sync ios
+
+      - name: Build iOS App (Development)
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -destination generic/platform=iOS \
+            -archivePath App.xcarchive \
+            archive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+          cd ../..
+
+      - name: Create iOS App Bundle
+        run: |
+          cd ios/App
+          # Create a zip of the .app bundle for distribution
+          cd App.xcarchive/Products/Applications/
+          zip -r ../../../../reddoor-ios-${{ github.run_number }}.zip App.app
+          cd ../../../../..
+
+      - name: Upload iOS App to Release
+        if: github.event_name == 'release'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./ios/App/reddoor-ios-${{ github.run_number }}.zip
+          asset_name: reddoor-ios.zip
+          asset_content_type: application/zip
+
+      - name: Upload iOS App as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-app
+          path: ./ios/App/reddoor-ios-${{ github.run_number }}.zip
+          retention-days: 30

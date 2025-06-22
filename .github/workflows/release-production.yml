@@ -1,0 +1,277 @@
+name: Production Release Build
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to build for"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - "production"
+          - "staging"
+
+env:
+  NODE_VERSION: "18"
+  JAVA_VERSION: "17"
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Generate production config
+        run: npm run prod-config
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Decode Android keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/release-key.keystore
+
+      - name: Build signed Android APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd android
+          if [ -f "app/release-key.keystore" ]; then
+            # Build signed APK
+            ./gradlew assembleRelease \
+              -Pandroid.injected.signing.store.file=release-key.keystore \
+              -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
+              -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+              -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD" \
+              --no-daemon
+          else
+            # Build unsigned APK
+            echo "No keystore found, building unsigned APK"
+            ./gradlew assembleRelease --no-daemon
+          fi
+          cd ..
+
+      - name: Rename Android APK
+        run: |
+          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          if [ -n "$APK_PATH" ]; then
+            cp "$APK_PATH" "./reddoor-android-v${{ github.event.release.tag_name || github.run_number }}.apk"
+          else
+            echo "No APK found!"
+            exit 1
+          fi
+
+      - name: Upload Android APK to Release
+        if: github.event_name == 'release'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./reddoor-android-v${{ github.event.release.tag_name }}.apk
+          asset_name: reddoor-android.apk
+          asset_content_type: application/vnd.android.package-archive
+
+      - name: Upload Android APK as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-${{ github.event.release.tag_name || github.run_number }}
+          path: ./reddoor-android-v${{ github.event.release.tag_name || github.run_number }}.apk
+          retention-days: 90
+
+  build-ios:
+    runs-on: macos-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Generate production config
+        run: npm run prod-config
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync Capacitor
+        run: npx cap sync ios
+
+      - name: Import Code-Signing Certificates
+        if: env.IOS_CERTIFICATE_BASE64 != ''
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create temporary keychain
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+
+          # Import certificate
+          echo "$IOS_CERTIFICATE_BASE64" | base64 -d > certificate.p12
+          security import certificate.p12 -k build.keychain -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
+      - name: Install Provisioning Profile
+        if: env.IOS_PROVISIONING_PROFILE_BASE64 != ''
+        env:
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+
+      - name: Build iOS App
+        env:
+          IOS_CODE_SIGN_IDENTITY: ${{ secrets.IOS_CODE_SIGN_IDENTITY }}
+          IOS_PROVISIONING_PROFILE_UUID: ${{ secrets.IOS_PROVISIONING_PROFILE_UUID }}
+        run: |
+          cd ios/App
+
+          if [ -n "$IOS_CODE_SIGN_IDENTITY" ] && [ -n "$IOS_PROVISIONING_PROFILE_UUID" ]; then
+            # Build signed app
+            xcodebuild -workspace App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -destination generic/platform=iOS \
+              -archivePath App.xcarchive \
+              archive \
+              CODE_SIGN_IDENTITY="$IOS_CODE_SIGN_IDENTITY" \
+              PROVISIONING_PROFILE="$IOS_PROVISIONING_PROFILE_UUID"
+            
+            # Export IPA
+            cat > ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>teamID</key>
+              <string>${{ secrets.APPLE_TEAM_ID }}</string>
+          </dict>
+          </plist>
+          EOF
+            
+            xcodebuild -exportArchive \
+              -archivePath App.xcarchive \
+              -exportPath . \
+              -exportOptionsPlist ExportOptions.plist
+          else
+            # Build unsigned app
+            echo "No signing credentials found, building unsigned app"
+            xcodebuild -workspace App.xcworkspace \
+              -scheme App \
+              -configuration Release \
+              -destination generic/platform=iOS \
+              -archivePath App.xcarchive \
+              archive \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO
+            
+            # Create zip of .app bundle
+            cd App.xcarchive/Products/Applications/
+            zip -r ../../../App.zip App.app
+            cd ../../..
+          fi
+          cd ../..
+
+      - name: Rename iOS artifact
+        run: |
+          cd ios/App
+          if [ -f "App.ipa" ]; then
+            cp App.ipa "../../reddoor-ios-v${{ github.event.release.tag_name || github.run_number }}.ipa"
+          elif [ -f "App.zip" ]; then
+            cp App.zip "../../reddoor-ios-v${{ github.event.release.tag_name || github.run_number }}.zip"
+          else
+            echo "No iOS artifact found!"
+            exit 1
+          fi
+          cd ../..
+
+      - name: Upload iOS IPA to Release
+        if: github.event_name == 'release' && hashFiles('./reddoor-ios-v*.ipa') != ''
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./reddoor-ios-v${{ github.event.release.tag_name }}.ipa
+          asset_name: reddoor-ios.ipa
+          asset_content_type: application/octet-stream
+
+      - name: Upload iOS ZIP to Release
+        if: github.event_name == 'release' && hashFiles('./reddoor-ios-v*.zip') != ''
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./reddoor-ios-v${{ github.event.release.tag_name }}.zip
+          asset_name: reddoor-ios.zip
+          asset_content_type: application/zip
+
+      - name: Upload iOS App as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-app-${{ github.event.release.tag_name || github.run_number }}
+          path: |
+            ./reddoor-ios-v${{ github.event.release.tag_name || github.run_number }}.ipa
+            ./reddoor-ios-v${{ github.event.release.tag_name || github.run_number }}.zip
+          retention-days: 90
+          if-no-files-found: ignore

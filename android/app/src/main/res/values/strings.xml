@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RedDoor</string>
+    <string name="title_activity_main">RedDoor</string>
+    <string name="package_name">com.johncorser.reddoor</string>
+    <string name="custom_url_scheme">com.johncorser.reddoor</string>
+</resources>
